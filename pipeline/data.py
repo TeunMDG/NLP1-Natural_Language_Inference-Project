@@ -73,8 +73,10 @@ def clean_data(dataset):
     """
     kept_indices = [
         index
-        for index, example in enumerate(dataset)
-        if _is_valid_example(example)
+        for index, (premise, hypothesis, label) in enumerate(zip(
+            dataset["premise"][:], dataset["hypothesis"][:], dataset["label"][:]
+        ))
+        if _is_valid_example({"premise": premise, "hypothesis": hypothesis, "label": label})
     ]
     cleaned_data = dataset.select(kept_indices)
 
@@ -97,14 +99,12 @@ def select_training_subset(training_data, n_examples=None, seed=0):
     """
     if n_examples is None:
         return training_data
-    if not isinstance(n_examples, int) or not 1 <= n_examples <= len(training_data):
-        raise ValueError("n_examples must be an integer between 1 and the dataset size.")
     if n_examples == len(training_data):
         return training_data
 
     premise_groups = defaultdict(list)
-    for index, example in enumerate(training_data):
-        premise_groups[_premise_key(example["premise"])].append(index)
+    for index, premise in enumerate(training_data["premise"][:]):
+        premise_groups[_premise_key(premise)].append(index)
 
     group_keys = list(premise_groups)
     random.Random(seed).shuffle(group_keys)
@@ -179,3 +179,48 @@ def save_data_manifest(config, training_data, folds, output_dir):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     return output_path
+
+
+def load_data_manifest(input_dir):
+    """Read the settings and fold assignments saved by save_data_manifest."""
+    path = Path(input_dir) / "manifest.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_saved_folds(input_dir, dataset=None):
+    """Restore the subset and folds saved in the manifest.
+
+    Source: our manifest; part1.experiment fold format.
+    """
+    manifest = load_data_manifest(input_dir)
+    if dataset is None:
+        config = manifest["config"]
+        dataset = load_mnli(config["dataset"], config.get("revision"))["train"]
+
+    source_ids = dataset["pairID"][:]
+    positions = {pair_id: index for index, pair_id in enumerate(source_ids)}
+
+    counts = Counter(source_ids)
+    if any(counts[pair_id] > 1 for pair_id in manifest["pair_ids"]):
+        # MNLI can reuse pairIDs for different hypotheses. Reproduce the saved
+        # selection in that case; choosing one row per ID would lose examples.
+        config = manifest["config"]
+        cleaned, _ = clean_data(dataset)
+        subset = select_training_subset(cleaned, config["n_examples"], config["seed"])
+    else:
+        subset = dataset.select([positions[pair_id] for pair_id in manifest["pair_ids"]])
+    pairs = []
+    for premise, hypothesis, label in zip(subset["premise"][:], subset["hypothesis"][:], subset["label"][:]):
+        pairs.append(((premise, hypothesis), int(label)))
+
+    folds = {}
+    for fold_id, saved in manifest["folds"].items():
+        train_ids = saved["training_ids"]
+        val_ids = saved["validation_ids"]
+        folds[int(fold_id)] = {
+            "training": [pairs[i] for i in train_ids],
+            "validation": [pairs[i] for i in val_ids],
+            "training_ids": train_ids,
+            "validation_ids": val_ids,
+        }
+    return subset, folds

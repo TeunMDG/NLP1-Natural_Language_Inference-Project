@@ -1,6 +1,7 @@
 """BPE tokenization helpers for MNLI cross-validation folds."""
 
 from pathlib import Path
+from tokenizers import Tokenizer
 
 from part1.experiment import train_tokenizer
 
@@ -77,6 +78,11 @@ def save_fold_tokenizers(tokenizers, output_dir):
     return saved_paths
 
 
-# TODO: Add load_fold_tokenizer when tokenizer loading has been covered.
+def load_fold_tokenizer(input_dir, fold_id):
+    """Load the tokenizer saved for this fold.
+    Source: Tokenizer.from_file, the counterpart of tokenizer.save.
+    """
+    path = Path(input_dir) / f"fold-{fold_id}" / "tokenizer.json"
+    return Tokenizer.from_file(str(path))
 
 
