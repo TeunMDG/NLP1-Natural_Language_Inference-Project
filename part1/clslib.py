@@ -176,7 +176,7 @@ class TokenIndicator(Encoder):
         
     def __len__(self) -> int:
         """Dimensionality of the representation space"""
-        return len(tokenizer.get_vocab())
+        return len(self.tokenizer.get_vocab()) # changed from tokenizer.get_vocab() from the course code to self.tokenizer.get_vocab() since bug...
 
     def __call__(self, x: str) -> 'np.array':
         """Represent x as a D-dimensional vector of real numbers"""
