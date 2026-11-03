@@ -222,3 +222,6 @@ __marimo__/
 # local SSD stuff
 ._*
 .DS_Store
+
+# model results that take up a lot of space.
+results/*/
