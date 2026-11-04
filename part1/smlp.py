@@ -187,13 +187,14 @@ def evaluate(model, dataloader, criterion, device="cpu"):
 
 def train_neural_network_model(training_set, validation_set, num_classes, encoder, save_to,   
                                 hidden_dim=128, dropout=0.1, batch_size=64, learning_rate=1e-3, 
-                                weight_decay=1e-4, num_epochs=20, device=torch.device("cpu")):
+                                weight_decay=1e-4, num_epochs=20, device=torch.device("cpu"), select_best=True):
     """Encode texts, train SparseMLP, and checkpoint the best validation model.
 
     Inputs: train/val (text, label) pairs, num_classes, encoder (text -> sparse vector), path prefix to save weights,
             plus standard training hyperparameters.
     Process: vectorise documents, build sparse dataloaders, train for `num_epochs`, save best-by-val-loss.
     Output: per-epoch metrics list, best epoch index, and validation predictions from the best model.
+    select_best=False saves the final epoch instead, for scoring an outer CV fold.
     """
     if isinstance(device, str):
         device = torch.device(device)
@@ -268,9 +269,9 @@ def train_neural_network_model(training_set, validation_set, num_classes, encode
             f"val acc: {val_metrics['accuracy']:.4f}"
             )
         
-        # Saving the best model according to validation loss
+        # Save the best validation model, or the final epoch when select_best=False.
         if epoch != 0:
-            if val_metrics["loss"] <= best_val_loss:
+            if not select_best or val_metrics["loss"] <= best_val_loss:
                 best_val_loss = val_metrics["loss"]
                 torch.save(model.state_dict(), f"{save_to}.pt")
                 best_epoch = epoch
