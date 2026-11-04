@@ -47,8 +47,33 @@ def make_encoder(tokenizer, representation="indicator"):
         return PairEncoder(TokenIndicator(tokenizer))
     if representation == "bow":
         return PairEncoder(BagOfWords(tokenizer))
-    raise ValueError(f"Unknown representation: {representation}. Use indicator or bow.")
+    if representation == "overlap":
+        return OverlapEncoder(tokenizer)
+    raise ValueError(f"Unknown representation: {representation}. Use indicator, bow or overlap.")
 
 
-# TODO: Add TF-IDF as the third representation, fitted only on training data.
-# These dense vectors keep the original part1 training interface unchanged.
+class OverlapEncoder(Encoder):
+    """Token indicators for how premise and hypothesis relate:
+    tokens in both, tokens only in the premise, tokens only in the hypothesis.
+    Our third representation: unlike PairEncoder, it can see that a token
+    occurs in both sentences.
+    """
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.vocab_size = tokenizer.get_vocab_size()
+
+    def __len__(self):
+        return 3 * self.vocab_size
+
+    def __call__(self, pair):
+        premise, hypothesis = pair
+        P = set(self.tokenizer.encode(premise).ids)
+        H = set(self.tokenizer.encode(hypothesis).ids)
+        V = self.vocab_size
+
+        vector = np.zeros(len(self), dtype=np.float32)
+        vector[list(P & H)] = 1                       # block 1: in both
+        vector[[V + i for i in P - H]] = 1            # block 2: only premise
+        vector[[2 * V + i for i in H - P]] = 1        # block 3: only hypothesis
+        return vector
