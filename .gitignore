@@ -225,3 +225,7 @@ __marimo__/
 
 # model results that take up a lot of space.
 results/*/
+# Local Project 1 results archive retained for comparisons.
+/results.zip
+# Downloaded GloVe resources and partial downloads.
+/resources/embeddings/

@@ -7,10 +7,7 @@ seaborn
 nltk
 scikit-learn
 torch
-tokenizers
 datasets
-tabulate
 tqdm
 ipywidgets
 baycomp
-certifi

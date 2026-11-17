@@ -1,79 +1,112 @@
-"""The tutorial's token features, adapted to sentence pairs."""
+"""Part 2 sentence encoders and our MNLI pair wrapper.
 
-import numpy as np
-from part1.clslib import Encoder, TokenIndicator
+Source: nlp1-student/part2/clslib.py (EmbedAndPoolEncoder and LSTMEncoder),
+also demonstrated in part2/tutorial.ipynb. These sentence encoders retain the
+course computation and constructor arguments; docstrings/comments are shortened.
+PairEncoder is our addition for premise/hypothesis inputs, marked inline below.
 
+Course license: licenses/NLP1-COURSE-LICENSE (Apache-2.0).
+"""
 
-class BagOfWords(Encoder):
-    """Count token occurrences in one sentence.
-    Source: the Bag-of-Words exercise in part1/tutorial.ipynb.
-    """
-
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-
-    def __len__(self):
-        return self.tokenizer.get_vocab_size()
-
-    def __call__(self, text):
-        vector = np.zeros(len(self), dtype=np.float32)
-        for token_id in self.tokenizer.encode(text).ids:
-            vector[token_id] += 1
-        return vector
+import torch
+import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
-class PairEncoder(Encoder):
-    """Join separate premise and hypothesis vectors into one feature vector.
-    Source: part1.clslib.Encoder, adapted to our MNLI pairs.
-    """
+class EmbedAndPoolEncoder(nn.Module):
+    # like tutorial
+
+    def __init__(self, embedding_matrix, average_pool=True, padding_idx=0, freeze_embeddings=True):
+        super().__init__()
+        self.average_pool = average_pool
+        self.embedding = nn.Embedding.from_pretrained(
+            embedding_matrix,
+            freeze=freeze_embeddings,
+            padding_idx=padding_idx,
+        )
+
+    @property
+    def enc_dim(self):
+        return self.embedding.embedding_dim
+
+    @property
+    def pad_idx(self):
+        return self.embedding.padding_idx
+
+    def forward(self, x):
+        #Map IDs van shape (batch_size, max_seq_length) naar 1 vector
+        e = self.embedding(x)
+        if self.average_pool: #
+            den = torch.sum(x.ne(self.embedding.padding_idx), dim=-1, keepdim=True).clamp_min(1)
+        else:
+            den = 1
+        h = torch.sum(e, -2) / den
+        return h
+
+
+class LSTMEncoder(nn.Module):
+    # Tutorial
+    def __init__(self, hidden_size, embedding_matrix, padding_idx=0, freeze_embeddings=True, word_dropout=0.):
+        # Tutorial single layer, unidirectional LSTM en word dropout
+        super().__init__()
+        vocab_size, embedding_dim = embedding_matrix.shape
+        self.embedding = nn.Embedding.from_pretrained(
+            embedding_matrix,
+            freeze=freeze_embeddings,
+            padding_idx=padding_idx,
+        )
+        self.hidden_size = hidden_size
+        self.word_dropout = word_dropout
+        self.lstm = nn.LSTM(
+            input_size=embedding_dim,
+            hidden_size=hidden_size,
+            num_layers=1,
+            batch_first=True,
+        )
+
+    @property
+    def enc_dim(self):
+        return self.hidden_size
+
+    @property
+    def pad_idx(self):
+        return self.embedding.padding_idx
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        valid = x.ne(self.embedding.padding_idx)
+
+        if self.training and self.word_dropout > 0:
+            drop_mask = (
+                torch.rand(x.shape, device=embedded.device) < self.word_dropout
+            ) & valid
+            embedded = embedded.masked_fill(drop_mask.unsqueeze(-1), 0.0)
+
+        lengths = torch.sum(valid, dim=-1)
+        packed = pack_padded_sequence(embedded, lengths.cpu(), batch_first=True, enforce_sorted=False)
+        output, (hidden, cell) = self.lstm(packed)
+        final_hidden = hidden[-1]
+        return final_hidden
+
+
+class PairEncoder(nn.Module):  # MNLI addition: wrap either tutorial sentence encoder.
+    # encode premise en hypothese los en concatenate hun representaties
+    #x is (premise_ids, hypothesis_ids).  aanroepen: pair_encoder((p, h)).
 
     def __init__(self, sentence_encoder):
-        self.sentence_encoder = sentence_encoder
+        super().__init__()
+        self.sentence_encoder = sentence_encoder  # share weights van beide zinnen.
 
-    def __len__(self):
-        return 2 * len(self.sentence_encoder)
+    @property
+    def enc_dim(self):
+        return 2 * self.sentence_encoder.enc_dim  # MNLI: concatenate two sentence vectors.
 
-    def __call__(self, pair):
-        premise, hypothesis = pair
-        return np.concatenate([
-            self.sentence_encoder(premise),
-            self.sentence_encoder(hypothesis),
-        ]).astype(np.float32)
+    @property
+    def pad_idx(self):
+        return self.sentence_encoder.pad_idx  # MNLI: both sentences use the same vocabulary.
 
-
-def make_encoder(tokenizer, representation="indicator"):
-    """Choose the tutorial representation and wrap it for sentence pairs."""
-    if representation == "indicator":
-        return PairEncoder(TokenIndicator(tokenizer))
-    if representation == "bow":
-        return PairEncoder(BagOfWords(tokenizer))
-    if representation == "overlap":
-        return OverlapEncoder(tokenizer)
-    raise ValueError(f"Unknown representation: {representation}. Use indicator, bow or overlap.")
-
-
-class OverlapEncoder(Encoder):
-    """Token indicators for how premise and hypothesis relate:
-    tokens in both, tokens only in the premise, tokens only in the hypothesis.
-    Our third representation: unlike PairEncoder, it can see that a token
-    occurs in both sentences.
-    """
-
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-        self.vocab_size = tokenizer.get_vocab_size()
-
-    def __len__(self):
-        return 3 * self.vocab_size
-
-    def __call__(self, pair):
-        premise, hypothesis = pair
-        P = set(self.tokenizer.encode(premise).ids)
-        H = set(self.tokenizer.encode(hypothesis).ids)
-        V = self.vocab_size
-
-        vector = np.zeros(len(self), dtype=np.float32)
-        vector[list(P & H)] = 1                       # block 1: in both
-        vector[[V + i for i in P - H]] = 1            # block 2: only premise
-        vector[[2 * V + i for i in H - P]] = 1        # block 3: only hypothesis
-        return vector
+    def forward(self, x):
+        premise, hypothesis = x  #twee padded token-ID batches.
+        p = self.sentence_encoder(premise)  
+        h = self.sentence_encoder(hypothesis)  # encode de hypothese los met dezelfde encoder.
+        return torch.cat([p, h], dim=-1)  # hou volgorde premise/hypothese

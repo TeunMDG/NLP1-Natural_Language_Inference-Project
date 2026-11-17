@@ -1,123 +1,139 @@
-"""Run the tutorial models on our saved MNLI folds."""
+"""Compare majority, pooling, and LSTM on the same saved MNLI folds.
+
+The fold loop, per-fold model folder, train call, and result collection are adapted
+from nlp1-student/part2/experiment.py:cross_validation. 
+
+We keep our existing MNLI
+fold loading, majority baseline, metrics, and exports around that course structure.
+Reused steps are marked 'Course'; our adaptations are commented
+
+Course license: licenses/NLP1-COURSE-LICENSE (Apache-2.0).
+"""
 
 import json
 from pathlib import Path
 from time import perf_counter
 
 import numpy as np
+
+from . import models
 from .data import load_saved_folds
-from .tokenization import load_fold_tokenizer
-from .encoders import make_encoder
-from .models import fit_model, predict_probabilities
-from .evaluation import evaluate_predictions, save_predictions, make_results_table, summarize_results
+from .evaluation import (
+    evaluate_predictions,
+    make_results_table,
+    save_predictions,
+    summarize_results,
+)
 
 
-def run_experiments(data_dir, output_dir, representations=("indicator",),
-                    architectures=("logistic",), seed=0, loglin_args=None, smlp_args=None):
-    """Run selected combinations on the saved folds and return their results.
-    Source: part1.experiment.cross_validation_experiment, adapted for MNLI pairs.
-    """
-    # These are the exact examples and splits from our preparation step.
-    # Reusing them gives every model the same training/validation comparison.
-    subset, folds = load_saved_folds(data_dir)
+def run_experiments(
+    data_dir,
+    output_dir,
+    tokenizer=None,
+    emb_model=None,
+    systems=("majority",),
+    enc_kwargs=None,
+    regressor_kwargs=None,
+    opt_kwargs=None,
+    seed=0,
+    device="cpu",
+):
+    
+    #systems can contain 'majority', 'embed-and-pool', and 'lstm'. Neural systems
+    systems = tuple(systems)
+    
 
-    # Keep the settings next to the results so we know what produced them.
+    encoder_settings = {  #keep separate constructor settings for the two encoders.
+        "embed-and-pool": {"freeze_embeddings": True},
+        "lstm": {"freeze_embeddings": True, "hidden_size": 50},
+    }
+
+    for name, overrides in (enc_kwargs or {}).items():
+        if name not in encoder_settings:
+            raise ValueError(f"Unknown encoder settings: {name}")
+        
+        encoder_settings[name].update(overrides)
+
+
+    regressor_kwargs = dict(regressor_kwargs or {})
+    opt_kwargs = dict(opt_kwargs or {})
+
+    subset, folds = load_saved_folds(data_dir)  #premise-grouped folds.
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     config = {
         "data_dir": str(Path(data_dir).resolve()),
-        "representations": list(representations),
-        "architectures": list(architectures),
+        "systems": list(systems),
+        "enc_kwargs": {name: encoder_settings[name] for name in systems if name != "majority"},
+        "regressor_kwargs": regressor_kwargs,
+        "opt_kwargs": opt_kwargs,
         "seed": seed,
-        "loglin_args": loglin_args or {},
-        "smlp_args": smlp_args or {},
-        "mlp_checkpoint": "final epoch",
+        "fold_seed_rule": "seed + fold_id",
+        "device": str(device),
     }
     (output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    # A system is one architecture + one representation, e.g. logistic + bow.
-    # The majority baseline doesn't need an encoder, so its representation is None.
-    systems = [("majority", None)]
-    for representation in representations:
-        for architecture in architectures:
-            systems.append((architecture, representation))
+    classifiers = {  # retain format
+        name: [{"models": {}, "predictions": {}, "accuracies": {}, "macro_f1": {}}]
+        for name in systems
+    }
+    for fold_id in folds:
+        training_set = folds[fold_id]["training"]
+        validation_set = folds[fold_id]["validation"]
+        pairs = [pair for pair, label in validation_set]
+        gold = [label for pair, label in validation_set]
+        training_labels = [label for pair, label in training_set]
+        validation_rows = subset.select(folds[fold_id]["validation_ids"])
 
-    # Follow the tutorial's structure: each system has a list of CV runs.
-    # We do one run here, and store scores/model paths by fold inside that run.
-    classifiers = {}
-
-    # Each fold contains training/validation pairs and their positions in subset.
-    for fold_id, fold in folds.items():
-        tokenizer = load_fold_tokenizer(data_dir, fold_id)
-
-        # All systems in this fold share the same tokenizer and vocabulary.
-        encoders = {}
-        for representation in representations:
-            encoders[representation] = make_encoder(tokenizer, representation)
-        # TODO: When adding TF-IDF, fit its weights on fold["training"] only.
-
-        # Separate the validation inputs from the answers we score against.
-        # A pair is (premise, hypothesis); gold contains the integer labels.
-        pairs = [pair for pair, label in fold["validation"]]
-        gold = [label for pair, label in fold["validation"]]
-
-        # Get IDs and genres in exactly the same order as those validation pairs.
-        validation_rows = subset.select(fold["validation_ids"])
-
-        for model_option, representation in systems:
-            name = "majority" if model_option == "majority" else f"{model_option}_{representation}"
-            if name not in classifiers:
-                classifiers[name] = [{
-                    "models": {}, "predictions": {}, "accuracies": {}, "macro_f1": {},
-                }]
-
-            # Give each combination/fold its own model files and predictions.
+        for name in systems:  #vergelijk systemen binnen zelfde fold
             folder = output_dir / name / f"fold-{fold_id}"
             folder.mkdir(parents=True, exist_ok=True)
             model_path = None
-            history = {}
+            model_seed = None
+            saved_epoch = None
             start = perf_counter()
 
-            if model_option == "majority":
-                # Learn class frequencies from training labels, then use the
-                # same probabilities for every validation example.
-                labels = [label for pair, label in fold["training"]]
-                prior = np.bincount(labels, minlength=3) / len(labels)
+            if name == "majority":  #training-label majority baseline.
+                prior = np.bincount(training_labels, minlength=3) / len(training_labels)
                 probabilities = np.tile(prior, (len(gold), 1))
             else:
                 model_path = str(folder / "model")
-                # These wrappers call the supplied part1 training functions.
-                # The MLP uses fixed epochs, without selecting on this outer fold.
-                model, history = fit_model(
-                    model_option, fold["training"], fold["validation"],
-                    encoders[representation], model_path, seed=seed + fold_id,
-                    loglin_args=loglin_args, smlp_args=smlp_args,
+                model_seed = seed + int(fold_id)
+                _, saved_epoch = models.train(
+                    training_set,
+                    validation_set,
+                    tokenizer,
+                    emb_model,
+                    num_classes=3,  #MNLI: entailment, neutral, contradiction
+                    enc_type=name,
+                    enc_kwargs=encoder_settings[name],
+                    regressor_kwargs=regressor_kwargs,
+                    opt_kwargs=opt_kwargs,
+                    device=device,
+                    save_to=model_path,
+                    seed=model_seed,
                 )
-                probabilities = predict_probabilities(
-                    model_option, pairs, model, encoders[representation]
+                model = models.load(model_path, emb_model, device=device)  # score the saved final-epoch checkpoint
+                probabilities = models.predict_probabilities(  # probabilities voor CSV export 
+                    model, tokenizer, pairs, batch_size=opt_kwargs.get("batch_size", 64), device=device,
                 )
-                # The model is already saved, so release it before the next fit.
                 del model
 
-            # Each row has three probabilities in label order 0, 1, 2.
-            # argmax(axis=1) picks the most likely class for each example.
             predictions = probabilities.argmax(axis=1)
-            metrics = evaluate_predictions(gold, predictions)
-            metrics["seconds"] = perf_counter() - start
-            metrics["n_training"] = len(fold["training"])
-            metrics["n_validation"] = len(gold)
-
-            # NumPy matrices need conversion to ordinary lists before JSON saving.
-            metrics["confusion_matrix"] = metrics["confusion_matrix"].tolist()
-            metrics["accuracy"] = float(metrics["accuracy"])
-            metrics["macro_f1"] = float(metrics["macro_f1"])
-            save_predictions(folder / "predictions.csv", validation_rows, predictions, probabilities)
+            metrics = evaluate_predictions(gold, predictions)  #we houden accuracy, macro-F1, en confusion matrix
+            metrics.update({
+                "seconds": perf_counter() - start,
+                "n_training": len(training_labels),
+                "n_validation": len(gold),
+                "accuracy": float(metrics["accuracy"]),
+                "macro_f1": float(metrics["macro_f1"]),
+                "confusion_matrix": metrics["confusion_matrix"].tolist(),
+                "seed": model_seed,
+                "saved_epoch": saved_epoch,
+            })
+            save_predictions(folder / "predictions.csv", validation_rows, predictions, probabilities)  #hou IDs and genres
             (folder / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-            if history:
-                (folder / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
 
-            # [0] selects our single CV run. The fold ID keeps scores aligned
-            # across systems for the later paired Bayesian comparison.
             run = classifiers[name][0]
             run["models"][fold_id] = model_path
             run["predictions"][fold_id] = predictions.tolist()
@@ -125,12 +141,9 @@ def run_experiments(data_dir, output_dir, representations=("indicator",),
             run["macro_f1"][fold_id] = metrics["macro_f1"]
             print(f"Fold {fold_id}: {name}, accuracy={metrics['accuracy']:.4f}", flush=True)
 
-        # Save after each completed fold so earlier results survive a later failure.
+        #sla alle info op
         (output_dir / "results.json").write_text(json.dumps(classifiers, indent=2), encoding="utf-8")
         make_results_table(classifiers).to_csv(output_dir / "fold_scores.csv", index=False)
         summarize_results(classifiers).to_csv(output_dir / "summary.csv")
 
     return classifiers
-
-
-# TODO: Add the third representation and architecture once their modules support them.

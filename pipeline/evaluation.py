@@ -2,7 +2,7 @@
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from pathlib import Path
 import pandas as pd
-from part1.analysis import make_data_frame, BenavoliCorrelatedT, plot_box_and_points
+from .comparison import make_data_frame, BenavoliCorrelatedT, plot_box_and_points
 
 def evaluate_predictions(gold, predictions):
     """Calculate the scores for one validation fold.
@@ -37,7 +37,7 @@ def save_predictions(path, examples, predictions, probabilities):
 
 def make_results_table(classifiers):
     """Put the scores from all systems and folds into one table.
-    Source: part1.analysis.make_data_frame.
+    Source: the course's make_data_frame, retained in pipeline.comparison.
     """
     table = make_data_frame(classifiers)
     macro_f1_scores = []
@@ -56,7 +56,7 @@ def summarize_results(classifiers):
 
 def compare_models(classifiers, name_a, name_b, rope=0.005):
     """Compare two systems using the tutorial's Bayesian approach.
-    Source: part1.analysis.BenavoliCorrelatedT.
+    Source: the course's BenavoliCorrelatedT, retained in pipeline.comparison.
     """
     scores_a = []
     scores_b = []
@@ -86,11 +86,12 @@ def compare_models(classifiers, name_a, name_b, rope=0.005):
 
 def plot_results(classifiers):
     """Plot the individual fold scores and their spread.
-    Source: part1.analysis.plot_box_and_points.
+    Source: the course's plot_box_and_points, retained in pipeline.comparison.
     """
     table = make_results_table(classifiers)
     plot_box_and_points(table)
 
 
-# TODO: Inspect actual errors, e.g. negation or high word overlap.
+# TODO(Project 2): add error slices for length, negation, lexical overlap, unknown
+# words, genre, and class. Retain manifest row indices alongside non-unique pairIDs.
 # Evaluate matched/mismatched sets after choosing models, keeping them out of tuning.
