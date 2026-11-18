@@ -90,16 +90,21 @@ class LSTMEncoder(nn.Module):
 
 
 class PairEncoder(nn.Module):  # MNLI addition: wrap either tutorial sentence encoder.
-    # encode premise en hypothese los en concatenate hun representaties
-    #x is (premise_ids, hypothesis_ids).  aanroepen: pair_encoder((p, h)).
+    # encode premise en hypothese los met dezelfde encoder, combineer daarna.
+    # features="concat":    [p; h]                      (2 x enc_dim)
+    # features="infersent": [p; h; |p-h|; p*h]          (4 x enc_dim), Conneau et al. 2017 (D-015)
 
-    def __init__(self, sentence_encoder):
+    def __init__(self, sentence_encoder, features="concat"):
         super().__init__()
+        if features not in ("concat", "infersent"):
+            raise ValueError(f"Unknown pair features: {features}")
         self.sentence_encoder = sentence_encoder  # share weights van beide zinnen.
+        self.features = features
 
     @property
     def enc_dim(self):
-        return 2 * self.sentence_encoder.enc_dim  # MNLI: concatenate two sentence vectors.
+        factor = 2 if self.features == "concat" else 4
+        return factor * self.sentence_encoder.enc_dim  # classifier input size follows the feature choice
 
     @property
     def pad_idx(self):
@@ -107,6 +112,8 @@ class PairEncoder(nn.Module):  # MNLI addition: wrap either tutorial sentence en
 
     def forward(self, x):
         premise, hypothesis = x  #twee padded token-ID batches.
-        p = self.sentence_encoder(premise)  
-        h = self.sentence_encoder(hypothesis)  # encode de hypothese los met dezelfde encoder.
-        return torch.cat([p, h], dim=-1)  # hou volgorde premise/hypothese
+        p = self.sentence_encoder(premise)
+        h = self.sentence_encoder(hypothesis)
+        if self.features == "concat":
+            return torch.cat([p, h], dim=-1)
+        return torch.cat([p, h, torch.abs(p - h), p * h], dim=-1)  # explicit difference + agreement per dimension

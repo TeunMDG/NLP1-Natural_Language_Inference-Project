@@ -189,21 +189,24 @@ def train(
     with open(f"{save_to}.json", "w", encoding="utf-8") as f:
         json.dump(args, f, indent=2, ensure_ascii=False)
 
+    encoder_args = dict(enc_kwargs)
+    pair_features = encoder_args.pop("pair_features", "concat")  # P2: pair-level option, not a sentence-encoder argument
+
     if enc_type == "embed-and-pool":
         encoder = EmbedAndPoolEncoder(
             embedding_matrix=torch.tensor(emb_model.vectors, dtype=torch.float32),
-            **enc_kwargs,
+            **encoder_args,
         )
     elif enc_type == "lstm":
         encoder = LSTMEncoder(
             embedding_matrix=torch.tensor(emb_model.vectors, dtype=torch.float32),
-            **enc_kwargs,
+            **encoder_args,
         )
     else:
         raise ValueError(f"I do not know this encoder type: {enc_type}")
 
     model = SoftmaxRegressor(
-        encoder=PairEncoder(encoder),  # <<<< zelfde gedeelde sencoder en concatenate
+        encoder=PairEncoder(encoder, features=pair_features),  # <<<< zelfde gedeelde sencoder en concatenate
         **regressor_kwargs,
     ).to(device)
     criterion = nn.NLLLoss()
@@ -238,20 +241,23 @@ def load(path, emb_model: PretrainedEmbeddings, device="cpu"):
     if isinstance(device, str):
         device = torch.device(device)
 
+    encoder_args = dict(args["enc_kwargs"])
+    pair_features = encoder_args.pop("pair_features", "concat")  # P2: same as in train()
+
     if args["enc_type"] == "embed-and-pool":
         encoder = EmbedAndPoolEncoder(
             embedding_matrix=torch.tensor(emb_model.vectors, dtype=torch.float32),
-            **args["enc_kwargs"],
+            **encoder_args,
         )
     elif args["enc_type"] == "lstm":
         encoder = LSTMEncoder(
             embedding_matrix=torch.tensor(emb_model.vectors, dtype=torch.float32),
-            **args["enc_kwargs"],
+            **encoder_args,
         )
     else:
         raise ValueError(f"I do not know this encoder type: {args['enc_type']}")
     model = SoftmaxRegressor(
-        encoder=PairEncoder(encoder),  #same pair wrapper used in training.
+        encoder=PairEncoder(encoder, features=pair_features),  #same pair wrapper used in training.
         **args["regressor_kwargs"],
     ).to(device)
     with open(f"{path}.pt", "rb") as f:
