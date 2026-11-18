@@ -37,6 +37,8 @@ def run_experiments(
     opt_kwargs=None,
     seed=0,
     device="cpu",
+    fold_ids=None,
+    max_examples=None,
 ):
     
     #systems can contain 'majority', 'embed-and-pool', and 'lstm'. Neural systems
@@ -70,6 +72,8 @@ def run_experiments(
         "seed": seed,
         "fold_seed_rule": "seed + fold_id",
         "device": str(device),
+        "fold_ids": fold_ids,
+        "max_examples": max_examples,
     }
     (output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
@@ -78,12 +82,19 @@ def run_experiments(
         for name in systems
     }
     for fold_id in folds:
+        if fold_ids is not None and fold_id not in fold_ids:
+            continue
         training_set = folds[fold_id]["training"]
         validation_set = folds[fold_id]["validation"]
+        validation_ids = folds[fold_id]["validation_ids"]
+        if max_examples is not None:
+            training_set = training_set[:max_examples]
+            validation_set = validation_set[:max_examples]
+            validation_ids = validation_ids[:max_examples]
         pairs = [pair for pair, label in validation_set]
         gold = [label for pair, label in validation_set]
         training_labels = [label for pair, label in training_set]
-        validation_rows = subset.select(folds[fold_id]["validation_ids"])
+        validation_rows = subset.select(validation_ids)
 
         for name in systems:  #vergelijk systemen binnen zelfde fold
             folder = output_dir / name / f"fold-{fold_id}"
