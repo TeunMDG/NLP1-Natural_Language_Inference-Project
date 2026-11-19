@@ -39,6 +39,7 @@ def run_experiments(
     device="cpu",
     fold_ids=None,
     max_examples=None,
+    max_train_examples=None,
 ):
     
     #systems can contain 'majority', 'embed-and-pool', and 'lstm'. Neural systems
@@ -74,6 +75,7 @@ def run_experiments(
         "device": str(device),
         "fold_ids": fold_ids,
         "max_examples": max_examples,
+        "max_train_examples": max_train_examples,  # P2 Q4: learning curve (training only)
     }
     (output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
@@ -91,6 +93,17 @@ def run_experiments(
             training_set = training_set[:max_examples]
             validation_set = validation_set[:max_examples]
             validation_ids = validation_ids[:max_examples]
+        if max_train_examples is not None and max_train_examples < len(training_set):
+            # P2 Q4 learning curve: shrink ONLY the training data (validation stays full),
+            # random but label-balanced, reproducible via the seed.
+            rng = np.random.default_rng(seed + int(fold_id))
+            labels = np.array([label for _, label in training_set])
+            per_label = max_train_examples // 3
+            keep = np.concatenate([
+                rng.choice(np.flatnonzero(labels == c), per_label, replace=False) for c in range(3)
+            ])
+            keep.sort()
+            training_set = [training_set[i] for i in keep]
         pairs = [pair for pair, label in validation_set]
         gold = [label for pair, label in validation_set]
         training_labels = [label for pair, label in training_set]
