@@ -12,7 +12,7 @@ def main():
         "data_dir": root / "results" / "data" / "mnli-n50000-seed0",
         "output_dir": root / "results" / "experiments" / "mnli-n50000-seed0",
         "representations": ["indicator"],  # Also available: bow.
-        "architectures": ["logistic"],  # Also available: mlp.
+        "architectures": ["logistic", "mlp2"],  # Also available: mlp.
         "seed": 0,
         "loglin_args": {"max_iter": 1000},
         "smlp_args": {"hidden_dim": 128, "num_epochs": 20},
