@@ -1,0 +1,4 @@
+,accuracy,accuracy,macro_f1,macro_f1
+,mean,std,mean,std
+model,,,,
+embed-and-pool,0.48837079268814704,0.005297020755112134,0.4867886989364532,0.0048888634177859

@@ -1,0 +1,26 @@
+{
+  "data_dir": "C:\\Users\\Mark\\Master_AI\\NLP1\\NLP1-Natural_Language_Inference-Project\\results\\data\\mnli-n50000-seed0",
+  "representations": [
+    "indicator",
+    "bow",
+    "overlap"
+  ],
+  "architectures": [
+    "logistic",
+    "mlp",
+    "mlp2"
+  ],
+  "seed": 0,
+  "loglin_args": {
+    "max_iter": 1000
+  },
+  "smlp_args": {
+    "hidden_dim": 128,
+    "num_epochs": 20
+  },
+  "mlp2_args": {
+    "hidden_dim": 128,
+    "num_epochs": 20
+  },
+  "mlp_checkpoint": "final epoch"
+}
