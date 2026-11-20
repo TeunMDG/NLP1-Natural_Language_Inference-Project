@@ -1,0 +1,4 @@
+,accuracy,accuracy,macro_f1,macro_f1
+,mean,std,mean,std
+model,,,,
+lstm,0.5439912017596481,,0.5436449299314727,

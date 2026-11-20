@@ -1,0 +1,2 @@
+model,accuracy,run,fold,macro_f1
+embed-and-pool,0.4013197360527894,0,0,0.32617998026937595

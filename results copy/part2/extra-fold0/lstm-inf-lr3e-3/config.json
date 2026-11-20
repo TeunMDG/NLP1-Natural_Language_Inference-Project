@@ -1,0 +1,33 @@
+{
+  "data_dir": "/home/teunmdg/NLP1-Natural_Language_Inference-Project/results/data/mnli-n50000-seed0",
+  "systems": [
+    "lstm"
+  ],
+  "enc_kwargs": {
+    "lstm": {
+      "freeze_embeddings": true,
+      "hidden_size": 50,
+      "word_dropout": 0.0,
+      "pair_features": "infersent"
+    }
+  },
+  "regressor_kwargs": {
+    "hidden_size1": 50,
+    "hidden_size2": 50,
+    "dropout": 0.1
+  },
+  "opt_kwargs": {
+    "learning_rate": 0.003,
+    "weight_decay": 0.0001,
+    "batch_size": 64,
+    "num_epochs": 20
+  },
+  "seed": 0,
+  "fold_seed_rule": "seed + fold_id",
+  "device": "cuda",
+  "fold_ids": [
+    0
+  ],
+  "max_examples": null,
+  "max_train_examples": null
+}

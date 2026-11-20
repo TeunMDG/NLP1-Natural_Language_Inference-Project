@@ -1,0 +1,2 @@
+model,accuracy,run,fold,macro_f1
+lstm,0.5513897220555889,0,0,0.5507416631150117
